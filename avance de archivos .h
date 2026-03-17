@@ -1,4 +1,5 @@
 CONSOLA .H
+    
 
 #ifndef CONSOLA_H
 #define CONSOLA_H
@@ -17,6 +18,7 @@ void Dormir(int milisegundos);
 
 
 JUEGO .H
+
 
 #ifndef JUEGO_H
 #define JUEGO_H
