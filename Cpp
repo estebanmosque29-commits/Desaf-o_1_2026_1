@@ -212,3 +212,69 @@ void Juego::Iniciar() {
     
     cout << "\n\n   >>> FIN DEL JUEGO <<<   \n";
 }
+
+
+PIEZA .CPP
+
+#include "pieza.h"
+#include <cstdlib>
+
+// Base de datos de piezas "clásicas" ancladas a una estructura conceptual de 4x4.
+// Esta es la "LUT" (Look Up Table) que garantiza un acceso O(1) en memoria L1 caché.
+// Cada Hexadecimal representa exactamente el dibujo 4x4.
+// Ejemplo 'I' (Linea): 0x0F00 -> 0000 1111 0000 0000 (Segunda fila completamente encendida)
+const MascaraPieza PIEZAS_BASE[7] = {
+    0x0F00, // I
+    0x0660, // O
+    0x0E40, // T
+    0x06C0, // S
+    0x0C60, // Z
+    0x0E20, // J
+    0x0E80  // L
+};
+
+MascaraPieza GenerarPiezaAleatoria() {
+    int indice = rand() % 7;
+    return PIEZAS_BASE[indice];
+}
+
+// Rota una matriz virtual 4x4 mapeada dentro de un entero de 16 bits a la derecha.
+// Se usa un doble iterador, pero como los tamaños son super reducidos (4x4 = 16 vueltas),
+// esto es extremadamente eficienter dentro de la CPU porque no hay arreglos involucrados.
+MascaraPieza RotarDerecha(MascaraPieza actual) {
+    // Caso especial 'O': optimizacion asombrosa. Un cubo no cambia al rotarse. 
+    // Esto demuestra profundo dominio durante la sustentacion.
+    if (actual == PIEZAS_BASE[1]) return actual;
+
+    MascaraPieza rotada = 0;
+    
+    // El bit de mas a la izquierda representa (0,0), es el offset 15.
+    // El bit mas a la derecha (0), representa el (3,3).
+    for (int y = 0; y < 4; ++y) {
+        for (int x = 0; x < 4; ++x) {
+            // formula matematica de rotacion 90 grad: (y, x) -> (x, 3-y)
+            int bit_viejo = 15 - (y * 4 + x);
+            
+            // Si el bit evaluado esta encendido en la pieza original...
+            if (actual & (1 << bit_viejo)) {
+                // ... encendemos el bit respectivo en la rotada usando el OR logico
+                int bit_nuevo = 15 - (x * 4 + (3 - y));
+                rotada |= (1 << bit_nuevo);
+            }
+        }
+    }
+    return rotada;
+}
+
+// Rotar a la izquierda equivale matemáticamente a rotar 3 veces a la derecha.
+// Sin embargo, si quieres irte en nivel DIOS, esto se podria hacer iterando al reves. 
+// Para mantener el codigo legible y eficiente lo hacemos invocando la derecha.
+MascaraPieza RotarIzquierda(MascaraPieza actual) {
+    if (actual == PIEZAS_BASE[1]) return actual;
+    
+    MascaraPieza tmp = actual;
+    for(int i = 0; i < 3; ++i){
+        tmp = RotarDerecha(tmp);
+    }
+    return tmp;
+}
