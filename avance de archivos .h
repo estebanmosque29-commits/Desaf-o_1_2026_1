@@ -53,3 +53,28 @@ private:
 };
 
 #endif // JUEGO_H
+
+
+PIEZA .H
+
+#ifndef PIEZA_H
+#define PIEZA_H
+
+// Usamos exactamente 16 bits sin signo para representar un bloque 4x4.
+// Esto nos da un ahorro inmenso de memoria: 1 sola variable en vez de 16 booleanos.
+typedef unsigned short MascaraPieza;
+
+struct PiezaActiva {
+    MascaraPieza forma;
+    int x;
+    int y;
+};
+
+// Genera una de las 7 piezas base usando la funcion C-style rand()
+MascaraPieza GenerarPiezaAleatoria();
+
+// Rotacion de matriz 4x4 implementada 100% con operadores logicos a nivel de bit
+MascaraPieza RotarDerecha(MascaraPieza actual);
+MascaraPieza RotarIzquierda(MascaraPieza actual);
+
+#endif // PIEZA_H
