@@ -278,3 +278,131 @@ MascaraPieza RotarIzquierda(MascaraPieza actual) {
     }
     return tmp;
 }
+
+
+TABLERO .CPP
+
+#include "tablero.h"
+
+// Se asigna la memoria dinámica sin usar STL (vector).
+// Justificacion en la sustentación: Eficiencia de cache al asignar bloques 100% contiguos de bytes
+Tablero* CrearTablero(int ancho, int alto) {
+    // Restricciones universitarias especificas: 
+    if (ancho < 8) ancho = 8;
+    if (ancho % 8 != 0) ancho = ancho - (ancho % 8) + 8; // Asegurar múltiplo matematicamente
+    if (alto < 8) alto = 8;
+    
+    Tablero* t = new Tablero;
+    t->ancho = ancho;
+    t->alto = alto;
+    t->bytesPorFila = ancho / 8; // Gracias al IF anterior aseguramos que no hay fraccionarios.
+    
+    int totalBytes = t->bytesPorFila * alto;
+    t->datos = new unsigned char[totalBytes];
+    
+    // Limpieza agresiva de memoria sin usar memset de <cstring> (no recomendado por puristas c++ en objetos puros)
+    for (int i = 0; i < totalBytes; ++i) {
+        t->datos[i] = 0; // byte en cero:  b00000000 (todo limpio)
+    }
+    
+    return t;
+}
+
+// Justificacion: Prevencion de MEMORY LEAKS. Si usamos "new Array[]", delete[]
+void DestruirTablero(Tablero* tablero) {
+    if (tablero) {
+        delete[] tablero->datos;
+        delete tablero;
+    }
+}
+
+// Justificacion: Para acceder a M[Y][X] en una matrix BIT A BIT:
+// Byte al que pertenece  =  Y * (tam_fila en bytes) + X / 8
+// Bit al que pertenece   =  7 - (X modulo 8) (Leyendo LSB a MSB al reves para estetica visual humana)
+bool CeldaOcupada(Tablero* tablero, int x, int y) {
+    if (x < 0 || x >= tablero->ancho || y >= tablero->alto) return true; // Impacto fuerte en bordes
+    if (y < 0) return false; // Arriba en nacimiento todo ok.
+    
+    int byte_idx = y * tablero->bytesPorFila + (x / 8);
+    int bit_offset = 7 - (x % 8);
+    
+    // Creamos mascara temporal usando SHIFT (<<) y AND (&)
+    return (tablero->datos[byte_idx] & (1 << bit_offset)) != 0;
+}
+
+// Determinar si una Mascara 4x4 choca al fusionarse hipoteticamente con el tablero
+bool ColisionPieza(Tablero* tablero, MascaraPieza pieza, int px, int py) {
+    for (int y = 0; y < 4; ++y) {
+        for (int x = 0; x < 4; ++x) {
+            int bit_viejo = 15 - (y * 4 + x);
+            
+            // Si el PIXEL virtual de la figura esta solido
+            if (pieza & (1 << bit_viejo)) {
+                // Hacemos el testing en el lugar respectivo
+                if (CeldaOcupada(tablero, px + x, py + y)) {
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
+}
+
+// La joya de la corona: Fusion logica pura en Memoria usando operador OR.
+void FijarPieza(Tablero* tablero, MascaraPieza pieza, int px, int py) {
+    for (int y = 0; y < 4; ++y) {
+        for (int x = 0; x < 4; ++x) {
+            int bit_viejo = 15 - (y * 4 + x);
+            if (pieza & (1 << bit_viejo)) {
+                int real_x = px + x;
+                int real_y = py + y;
+                
+                if (real_x >= 0 && real_x < tablero->ancho && real_y >= 0 && real_y < tablero->alto) {
+                    // Matematica de offsets de Bits otra vez
+                    int byte_idx = real_y * tablero->bytesPorFila + (real_x / 8);
+                    int bit_offset = 7 - (real_x % 8);
+                    
+                    // Asignar 1 logicamente con el operador OR y un shift
+                    tablero->datos[byte_idx] |= (unsigned char)(1 << bit_offset);
+                }
+            }
+        }
+    }
+}
+
+// Destruccion y caida libre de los bloques superiores usando Algebra de punteros
+int LimpiarFilas(Tablero* tablero) {
+    int lineasLimpiadas = 0;
+    
+    for (int y = 0; y < tablero->alto; ++y) {
+        bool filaLlena = true;
+        
+        // Magia Bitwise para detectar mascara completa: Todos los bytes de la fila deben ser '11111111' = 0xFF
+        for (int b = 0; b < tablero->bytesPorFila; ++b) {
+            // El byte actual de esa coordenada Y
+            if (tablero->datos[y * tablero->bytesPorFila + b] != 0xFF) {
+                filaLlena = false;
+                break;
+            }
+        }
+        
+        if (filaLlena) {
+            lineasLimpiadas++;
+            // Bucle decreciente que asigna el byte n-1 al byte n, emulando la caida de la gravedad
+            for (int k = y; k > 0; --k) {
+                for (int b = 0; b < tablero->bytesPorFila; ++b) {
+                    tablero->datos[k * tablero->bytesPorFila + b] = tablero->datos[(k - 1) * tablero->bytesPorFila + b];
+                }
+            }
+            // Aniquilar fila en y=0, insertando de nuevo ceros puros.
+            for (int b = 0; b < tablero->bytesPorFila; ++b) {
+                tablero->datos[b] = 0;
+            }
+            // Trick para repasar la MISMA Y porque todo acaba de "caer" en ella, 
+            // no podemos simplemente saltar a la 'Y + 1' en la proxima iteracion.
+            y--; 
+        }
+    }
+    
+    return lineasLimpiadas;
+}
