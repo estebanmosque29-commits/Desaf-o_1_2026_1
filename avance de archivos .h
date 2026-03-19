@@ -78,3 +78,41 @@ MascaraPieza RotarDerecha(MascaraPieza actual);
 MascaraPieza RotarIzquierda(MascaraPieza actual);
 
 #endif // PIEZA_H
+
+
+TABLERO .H
+
+#ifndef TABLERO_H
+#define TABLERO_H
+
+#include "pieza.h"
+
+// Estructura fundamental para una matrix manejada mediante memoria de Bits (Bajo nivel en su maxima expresion)
+struct Tablero {
+    int ancho;
+    int alto;
+    int bytesPorFila;  // Al ser W multiplo de 8, este numero es perfecto (Ej: W=16 -> 2 bytes)
+    
+    // Puntero dinámico a la memoria RAW donde existira la matrix (100% contigua para cache CPU)
+    unsigned char* datos; 
+};
+
+// Genera el heap y configura las estructuras base
+Tablero* CrearTablero(int ancho, int alto);
+
+// Liberacion de heap OBLIGATORIA al usar 'new []' de manera manual
+void DestruirTablero(Tablero* tablero);
+
+// Revisa un booleano real basado en el bit N del byte C a traves de mascaras e indices array
+bool CeldaOcupada(Tablero* tablero, int x, int y);
+
+// Fusion de mascara virtual 4x4 iterativa vs. bytes de Memoria (Colisiones)
+bool ColisionPieza(Tablero* tablero, MascaraPieza pieza, int px, int py);
+
+// "Quemar" los bits de memoria del Tablero con la Mascara usando un 'OR' a nivel bit
+void FijarPieza(Tablero* tablero, MascaraPieza pieza, int px, int py);
+
+// Detectar bytes que sean '0xFF' integramente, lo que significa 'Fila Llena'
+int LimpiarFilas(Tablero* tablero);
+
+#endif // TABLERO_H
