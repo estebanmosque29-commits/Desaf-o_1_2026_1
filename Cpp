@@ -406,3 +406,37 @@ int LimpiarFilas(Tablero* tablero) {
     
     return lineasLimpiadas;
 }
+
+
+MAIN.CPP
+
+#include <iostream>
+#include <ctime>
+#include <cstdlib>
+#include "juego.h"
+#include "consola.h"
+
+// - Programacion Modular (Headers/Cpp multiples)
+// - Resolucion obligatoria de la arquitectura a bajo nivel con bytes
+// - Muliplo de 8 respetado a fuego en el Heap (16x20)
+
+int main() {
+    // 1. Inicializar semilla de rand() basado en el clock real del microprocesador (1 SOLA VEZ)
+    srand(static_cast<unsigned int>(time(NULL)));
+    
+    // 2. ClearScreen absoluto por si hay basura antigua en la CMD del compilador Qt
+    system("cls");
+
+    // 3. Crear el motor de Tetris. Ancho 16 (multiplo de 8). Alto 20.
+    Juego tetrisEngine(16, 20);
+    
+    // 4. Bloquear el hilo en modo Asincrono Iterativo -> LOOP PRINCIPAL
+    tetrisEngine.Iniciar();
+    
+    // 5. Evita que la consola haga un auto-cierre brutal de ventanas de Windows tras perder
+    std::cout << "\nPresiona cualquier tecla para salir con gracia..." << std::endl;
+    while(LetraPresionada()) ObtenerLetra(); // Vaciado asincrono de buffer preventivo
+    system("pause>nul");
+
+    return 0; // Return puro de C++ Standard indicando 0 ERRORES LOGICOS a nivel SO
+}
