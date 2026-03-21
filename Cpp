@@ -467,33 +467,82 @@ int LimpiarFilas(Tablero* tablero) {
 
 MAIN.CPP
 
-#include <iostream>
-#include <ctime>
-#include <cstdlib>
-#include "juego.h"
-#include "consola.h"
-
 // - Programacion Modular (Headers/Cpp multiples)
 // - Resolucion obligatoria de la arquitectura a bajo nivel con bytes
 // - Muliplo de 8 respetado a fuego en el Heap (16x20)
 
-int main() {
+#include <iostream>
+#include <ctime>
+#include <cstdlib>
+#include <windows.h>
+#include <io.h> // Para _isatty y _fileno
+#include <string>
+#include "juego.h"
+#include "consola.h"
+
+using namespace std;
+
+// Entorno 100% consola como fue solicitado, sin motor grafico.
+int main(int argc, char* argv[]) {
+    
+    // MAGIA DEFINTIVA: Detectamos si QtCreator esta atrapando el juego en su panel inferior
+    // _isatty devuelve 0 si la salida esta siendo redirigida a un pipe interno.
+    if (!_isatty(_fileno(stdout))) {
+        // Relanzamos el mismo ejecutable forzando una ventana nativa del sistema operativo CMD
+        string ejecutable = argv[0];
+        string comando = "start \"Tetris Consola\" \"" + ejecutable + "\"";
+        system(comando.c_str());
+        return 0; // Terminamos silenciosamente la ejecucion erronea del IDE
+    }
+
     // 1. Inicializar semilla de rand() basado en el clock real del microprocesador (1 SOLA VEZ)
     srand(static_cast<unsigned int>(time(NULL)));
     
-    // 2. ClearScreen absoluto por si hay basura antigua en la CMD del compilador Qt
+    int ancho = 16;
+    int alto = 20;
+
+    // Asegurar limpieza de consola inicial
     system("cls");
 
-    // 3. Crear el motor de Tetris. Ancho 16 (multiplo de 8). Alto 20.
-    Juego tetrisEngine(16, 20);
+    cout << "--- TETRIS UNIVERSITARIO (MODO CONSOLA PURO) ---\n\n";
+    cout << "Ingresa el Ancho del tablero (minimo 8, multiplo de 8 recomendado): " << flush;
+    cin >> ancho;
     
-    // 4. Bloquear el hilo en modo Asincrono Iterativo -> LOOP PRINCIPAL
+    // Validar si la consola de ejecución rechaza la entrada (Ej. Panel de Qt Creator sin Terminal)
+    if (cin.fail() || cin.eof()) {
+        cout << "\n[ADVERTENCIA DEL SISTEMA]\n";
+        cout << "Tu IDE no esta ejecutando el codigo en una Consola de Ventana Terminal CMD.\n";
+        cout << "Por favor, ACTIVA la opcion 'Run in Terminal' en la configuracion de QtCreator.\n";
+        cout << "El juego no puede recibir entradas del teclado sin una ventana de verdad.\n";
+        Dormir(5000); // 5 segundos para que lo lea
+        return 1;
+    }
+    
+    cout << "Ingresa el Alto del tablero (minimo 8): " << flush;
+    cin >> alto;
+
+    if (ancho < 8) ancho = 8;
+    // Forzamos multiplo de 8 para el heap memory bitwise logic
+    if (ancho % 8 != 0) ancho = ancho - (ancho % 8) + 8;
+    if (alto < 8) alto = 8;
+
+    cout << "\nPresiona cualquier tecla y luego ENTER para comenzar el juego..." << flush;
+    
+    // Limpiamos el salto de linea remanente en el buffer de cin
+    cin.ignore(); 
+    cin.get(); // Esperamos al ENTER del usuario
+
+    OcultarCursor();
+    
+    Juego tetrisEngine(ancho, alto);
     tetrisEngine.Iniciar();
     
-    // 5. Evita que la consola haga un auto-cierre brutal de ventanas de Windows tras perder
-    std::cout << "\nPresiona cualquier tecla para salir con gracia..." << std::endl;
-    while(LetraPresionada()) ObtenerLetra(); // Vaciado asincrono de buffer preventivo
-    system("pause>nul");
-
+    // Regresar cursor y color a la normalidad al salir
+    ColorTexto(7); // Blanco por defecto en consola Windows
+    cout << "\nGracias por jugar.\n" << endl;
+    
+    // Pausa para que la ventana generada por QtCreator no se cierre abruptamente
+    system("pause");
+    
     return 0; // Return puro de C++ Standard indicando 0 ERRORES LOGICOS a nivel SO
 }
