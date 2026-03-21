@@ -1,7 +1,7 @@
 TEMPLATE = app
-CONFIG += console
 CONFIG -= app_bundle
-CONFIG -= qt
+CONFIG += console
+QT -= core gui widgets
 
 SOURCES += main.cpp \
     consola.cpp \
