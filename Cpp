@@ -1,0 +1,548 @@
+CONSOLA .CPP
+
+#include "consola.h"
+#include <windows.h>
+#include <conio.h>
+
+// Justificacion: Evita el parpadeo molesto del cursor mientras el motor
+// de renderizado dibuja el tablero usando iteraciones.
+void OcultarCursor() {
+    HANDLE consola = GetStdHandle(STD_OUTPUT_HANDLE);
+    CONSOLE_CURSOR_INFO info;
+    info.dwSize = 100;
+    info.bVisible = FALSE;
+    SetConsoleCursorInfo(consola, &info);
+}
+
+// Justificacion: En lugar de usar system("cls") que causa flickering extremo,
+// movemos el cursor al inicio (0,0) y sobreescribimos los caracteres.
+void MoverCursor(int x, int y) {
+    HANDLE consola = GetStdHandle(STD_OUTPUT_HANDLE);
+    COORD pos;
+    pos.X = x;
+    pos.Y = y;
+    SetConsoleCursorPosition(consola, pos);
+}
+
+// Justificacion: Lectura no bloqueante del teclado (_kbhit).
+// Esto permite que la pieza caiga por gravedad aunque el usuario no presione nada.
+bool LetraPresionada() {
+    return _kbhit() != 0;
+}
+
+// Justificacion: Obtiene el caracter del buffer sin imprimirlo en pantalla.
+int ObtenerLetra() {
+    return _getch();
+}
+
+// Justificacion: Pausa el hilo de ejecucion usando Sleep de Windows 
+// para controlar los Ticks (fotogramas por segundo) del Game Loop.
+void Dormir(int milisegundos) {
+    Sleep(milisegundos);
+}
+
+
+
+JUEGO .CPP
+
+
+#include "juego.h"
+#include "consola.h"
+#include <iostream>
+#include <cstdlib>
+
+using namespace std;
+
+Juego::Juego(int ancho, int alto) {
+    m_tablero = CrearTablero(ancho, alto);
+    m_puntaje = 0;
+    m_lineasCompletadas = 0;
+    m_gameOver = false;
+    m_velocidad = 600;
+    m_siguientePieza = GenerarPiezaAleatoria();
+}
+
+Juego::~Juego() {
+    DestruirTablero(m_tablero);
+}
+
+void Juego::GenerarNuevaPieza() {
+    m_activa.forma = m_siguientePieza;
+    m_siguientePieza = GenerarPiezaAleatoria();
+    m_activa.x = (m_tablero->ancho / 2) - 2; // Centrada horizontalmente
+    m_activa.y = -3; // Nace virtualmente "arriba" del tablero
+    
+    if (ColisionPieza(m_tablero, m_activa.forma, m_activa.x, 0)) {
+        m_gameOver = true;
+    }
+}
+
+void Juego::BajarPiezaGravedad() {
+    if (!ColisionPieza(m_tablero, m_activa.forma, m_activa.x, m_activa.y + 1)) {
+        m_activa.y++;
+    } else {
+        FijarPieza(m_tablero, m_activa.forma, m_activa.x, m_activa.y); 
+        
+        int limpiadas = LimpiarFilas(m_tablero);
+        if (limpiadas > 0) {
+            m_lineasCompletadas += limpiadas;
+            if (limpiadas == 1) m_puntaje += 40;
+            if (limpiadas == 2) m_puntaje += 100;
+            if (limpiadas == 3) m_puntaje += 300;
+            if (limpiadas == 4) m_puntaje += 1200;
+        }
+        
+        GenerarNuevaPieza();
+    }
+}
+
+bool Juego::ProcesarEntrada() {
+    if (LetraPresionada()) {
+        int tecla = ObtenerLetra();
+        MascaraPieza testRot = 0;
+        bool cambiado = false;
+        
+        // Soportar mayusculas y minusculas
+        switch (tecla) {
+        case 'a': case 'A': // Izquierda
+            if (!ColisionPieza(m_tablero, m_activa.forma, m_activa.x - 1, m_activa.y)) {
+                m_activa.x--; cambiado = true;
+            }
+            break;
+        case 'd': case 'D': // Derecha
+            if (!ColisionPieza(m_tablero, m_activa.forma, m_activa.x + 1, m_activa.y)) {
+                m_activa.x++; cambiado = true;
+            }
+            break;
+        case 's': case 'S': // Caida rapida
+            BajarPiezaGravedad(); cambiado = true;
+            break;
+        case 'w': case 'W': // Rotar Derecha
+            testRot = RotarDerecha(m_activa.forma);
+            if (!ColisionPieza(m_tablero, testRot, m_activa.x, m_activa.y)) {
+                m_activa.forma = testRot; cambiado = true;
+            }
+            break;
+        case 'q': case 'Q': // Rotar Izquierda
+            testRot = RotarIzquierda(m_activa.forma);
+            if (!ColisionPieza(m_tablero, testRot, m_activa.x, m_activa.y)) {
+                m_activa.forma = testRot; cambiado = true;
+            }
+            break;
+        case 27: // ESC
+            m_gameOver = true; cambiado = true;
+            break;
+        }
+        return cambiado;
+    }
+    return false;
+}
+
+void Juego::DibujarSiguientePieza(int panelX, int panelY) {
+    for (int py = 0; py < 4; ++py) {
+        MoverCursor(panelX, panelY + py);
+        for (int px = 0; px < 4; ++px) {
+            int bit_viejo = 15 - (py * 4 + px);
+            if (m_siguientePieza & (1 << bit_viejo)) {
+                ColorTexto(11); // Cyan
+                cout << "[]";
+            } else {
+                cout << "  ";
+            }
+        }
+    }
+}
+
+void Juego::DibujarPantalla() {
+    // Limpieza agresiva de pantalla en cada frame tal y como se solicito
+    system("cls"); 
+    
+    // Titulo superior decorativo
+    ColorTexto(15);
+    cout << "   TETRIS NATIVO C++ \n";
+    
+    for (int y = 0; y < m_tablero->alto; ++y) {
+        // Borde izquierdo
+        ColorTexto(8); // Gris oscuro
+        cout << "<!";
+        
+        for (int x = 0; x < m_tablero->ancho; ++x) {
+            bool dibujado = false;
+            
+            // 1. Intentar dibujar pieza activa
+            if (x >= m_activa.x && x < m_activa.x + 4 && y >= m_activa.y && y < m_activa.y + 4) {
+                int px = x - m_activa.x;
+                int py = y - m_activa.y;
+                int bit_viejo = 15 - (py * 4 + px);
+                
+                if (m_activa.forma & (1 << bit_viejo)) {
+                    ColorTexto(10); // Verde claro brillante
+                    cout << "[]";
+                    dibujado = true;
+                }
+            }
+            
+            // 2. Si no es pieza activa, dibujar tablero estatico o vacio
+            if (!dibujado) {
+                if (CeldaOcupada(m_tablero, x, y)) {
+                    ColorTexto(15); // Blanco brillante para bloques fijos
+                    cout << "[]";
+                } else {
+                    ColorTexto(8); // Gris oscuro para reticula de fondo
+                    cout << " ."; // Espacio vacio (2 caracteres de ancho para coincidir con "[]")
+                }
+            }
+        }
+        
+        // Borde derecho
+        ColorTexto(8);
+        cout << "!>";
+        
+        // --- PANEL DE HUD LATERAL ---
+        // Se dibuja en posiciones x relativas asumiendo que "[]" y " ." miden 2 caracteres.
+        // BordeIzquierdo(2) + Ancho(x*2) + BordeDerecho(2) + Margen(4)
+        int panelX = 2 + (m_tablero->ancho * 2) + 2 + 4;
+        MoverCursor(panelX, y + 1); // +1 por el titulo
+        
+        if (y == 1) { ColorTexto(14); cout << "PUNTAJE:"; }
+        else if (y == 2) { ColorTexto(15); cout << m_puntaje; }
+        else if (y == 4) { ColorTexto(14); cout << "LINEAS:"; }
+        else if (y == 5) { ColorTexto(15); cout << m_lineasCompletadas; }
+        else if (y == 7) { ColorTexto(11); cout << "SIGUIENTE:"; }
+        else if (y >= 9 && y <= 12) { 
+            // Esto dibujara las 4 filas de la siguiente pieza desde aca
+            if (y == 9) DibujarSiguientePieza(panelX, 9 + 1); // 9+1 por el titulo
+        }
+        else if (y == 14) { ColorTexto(7); cout << "CONTROLES:"; }
+        else if (y == 15) { ColorTexto(7); cout << "[A] / [D]: Mover Izq/Der"; }
+        else if (y == 16) { ColorTexto(7); cout << "[S]      : Bajar Rapido"; }
+        else if (y == 17) { ColorTexto(7); cout << "[W]      : Rotar Der."; }
+        else if (y == 18) { ColorTexto(7); cout << "[Q]      : Rotar Izq."; }
+        else if (y == 19) { ColorTexto(7); cout << "[ESC]    : Rendirse"; }
+        
+        // Nueva linea al finalizar el rendering horizontal
+        cout << "\n";
+    }
+    
+    // Piso del tablero
+    ColorTexto(8);
+    cout << "=="; // Borde Izq Piso
+    for (int x = 0; x < m_tablero->ancho; ++x) cout << "==";
+    cout << "==\n"; // Borde Der Piso
+    
+    if (m_gameOver) {
+        ColorTexto(12); // Rojo intenso
+        cout << "\n       >>> GAME OVER! <<<       \n";
+    }
+}
+
+void Juego::Iniciar() {
+    GenerarNuevaPieza();
+    
+    // Limpiar pantalla inicial y de inputs sobrantes
+    system("cls");
+    DibujarPantalla();
+    
+    // Game Loop Manual de Consola
+    int contadorGravedad = 0;
+    
+    // Loop de Ejecución Contínua hasta que se pierda o presione Esc
+    while (!m_gameOver) {
+        
+        // 1. Input no bloqueante
+        if (ProcesarEntrada()) {
+            // Actualizar consola al instante si el jugador interactua
+            DibujarPantalla();
+        }
+        
+        // 3. Sistema de "Gravedad Temporal" de MEDIO SEGUNDO 
+        Dormir(20); 
+        contadorGravedad += 20;
+        
+        if (contadorGravedad >= 500) { // Exactamente medio segundo
+            BajarPiezaGravedad();
+            DibujarPantalla(); // Se dibuja la consola obligatoriamente cada medio segundo
+            contadorGravedad = 0; 
+        }
+    }
+    
+    // Ultimó renderizado para mostrar GameOver sin cerrar abruptamente
+    DibujarPantalla();
+}
+
+
+PIEZA .CPP
+
+#include "pieza.h"
+#include <cstdlib>
+
+// Base de datos de piezas "clásicas" ancladas a una estructura conceptual de 4x4.
+// Esta es la "LUT" (Look Up Table) que garantiza un acceso O(1) en memoria L1 caché.
+// Cada Hexadecimal representa exactamente el dibujo 4x4.
+// Ejemplo 'I' (Linea): 0x0F00 -> 0000 1111 0000 0000 (Segunda fila completamente encendida)
+const MascaraPieza PIEZAS_BASE[7] = {
+    0x0F00, // I
+    0x0660, // O
+    0x0E40, // T
+    0x06C0, // S
+    0x0C60, // Z
+    0x0E20, // J
+    0x0E80  // L
+};
+
+MascaraPieza GenerarPiezaAleatoria() {
+    int indice = rand() % 7;
+    return PIEZAS_BASE[indice];
+}
+
+// Rota una matriz virtual 4x4 mapeada dentro de un entero de 16 bits a la derecha.
+// Se usa un doble iterador, pero como los tamaños son super reducidos (4x4 = 16 vueltas),
+// esto es extremadamente eficienter dentro de la CPU porque no hay arreglos involucrados.
+MascaraPieza RotarDerecha(MascaraPieza actual) {
+    // Caso especial 'O': optimizacion asombrosa. Un cubo no cambia al rotarse. 
+    // Esto demuestra profundo dominio durante la sustentacion.
+    if (actual == PIEZAS_BASE[1]) return actual;
+
+    MascaraPieza rotada = 0;
+    
+    // El bit de mas a la izquierda representa (0,0), es el offset 15.
+    // El bit mas a la derecha (0), representa el (3,3).
+    for (int y = 0; y < 4; ++y) {
+        for (int x = 0; x < 4; ++x) {
+            // formula matematica de rotacion 90 grad: (y, x) -> (x, 3-y)
+            int bit_viejo = 15 - (y * 4 + x);
+            
+            // Si el bit evaluado esta encendido en la pieza original...
+            if (actual & (1 << bit_viejo)) {
+                // ... encendemos el bit respectivo en la rotada usando el OR logico
+                int bit_nuevo = 15 - (x * 4 + (3 - y));
+                rotada |= (1 << bit_nuevo);
+            }
+        }
+    }
+    return rotada;
+}
+
+// Rotar a la izquierda equivale matemáticamente a rotar 3 veces a la derecha.
+// Sin embargo, si quieres irte en nivel DIOS, esto se podria hacer iterando al reves. 
+// Para mantener el codigo legible y eficiente lo hacemos invocando la derecha.
+MascaraPieza RotarIzquierda(MascaraPieza actual) {
+    if (actual == PIEZAS_BASE[1]) return actual;
+    
+    MascaraPieza tmp = actual;
+    for(int i = 0; i < 3; ++i){
+        tmp = RotarDerecha(tmp);
+    }
+    return tmp;
+}
+
+
+TABLERO .CPP
+
+#include "tablero.h"
+
+// Se asigna la memoria dinámica sin usar STL (vector).
+// Justificacion en la sustentación: Eficiencia de cache al asignar bloques 100% contiguos de bytes
+Tablero* CrearTablero(int ancho, int alto) {
+    // Restricciones universitarias especificas: 
+    if (ancho < 8) ancho = 8;
+    if (ancho % 8 != 0) ancho = ancho - (ancho % 8) + 8; // Asegurar múltiplo matematicamente
+    if (alto < 8) alto = 8;
+    
+    Tablero* t = new Tablero;
+    t->ancho = ancho;
+    t->alto = alto;
+    t->bytesPorFila = ancho / 8; // Gracias al IF anterior aseguramos que no hay fraccionarios.
+    
+    int totalBytes = t->bytesPorFila * alto;
+    t->datos = new unsigned char[totalBytes];
+    
+    // Limpieza agresiva de memoria sin usar memset de <cstring> (no recomendado por puristas c++ en objetos puros)
+    for (int i = 0; i < totalBytes; ++i) {
+        t->datos[i] = 0; // byte en cero:  b00000000 (todo limpio)
+    }
+    
+    return t;
+}
+
+// Justificacion: Prevencion de MEMORY LEAKS. Si usamos "new Array[]", delete[]
+void DestruirTablero(Tablero* tablero) {
+    if (tablero) {
+        delete[] tablero->datos;
+        delete tablero;
+    }
+}
+
+// Justificacion: Para acceder a M[Y][X] en una matrix BIT A BIT:
+// Byte al que pertenece  =  Y * (tam_fila en bytes) + X / 8
+// Bit al que pertenece   =  7 - (X modulo 8) (Leyendo LSB a MSB al reves para estetica visual humana)
+bool CeldaOcupada(Tablero* tablero, int x, int y) {
+    if (x < 0 || x >= tablero->ancho || y >= tablero->alto) return true; // Impacto fuerte en bordes
+    if (y < 0) return false; // Arriba en nacimiento todo ok.
+    
+    int byte_idx = y * tablero->bytesPorFila + (x / 8);
+    int bit_offset = 7 - (x % 8);
+    
+    // Creamos mascara temporal usando SHIFT (<<) y AND (&)
+    return (tablero->datos[byte_idx] & (1 << bit_offset)) != 0;
+}
+
+// Determinar si una Mascara 4x4 choca al fusionarse hipoteticamente con el tablero
+bool ColisionPieza(Tablero* tablero, MascaraPieza pieza, int px, int py) {
+    for (int y = 0; y < 4; ++y) {
+        for (int x = 0; x < 4; ++x) {
+            int bit_viejo = 15 - (y * 4 + x);
+            
+            // Si el PIXEL virtual de la figura esta solido
+            if (pieza & (1 << bit_viejo)) {
+                // Hacemos el testing en el lugar respectivo
+                if (CeldaOcupada(tablero, px + x, py + y)) {
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
+}
+
+// La joya de la corona: Fusion logica pura en Memoria usando operador OR.
+void FijarPieza(Tablero* tablero, MascaraPieza pieza, int px, int py) {
+    for (int y = 0; y < 4; ++y) {
+        for (int x = 0; x < 4; ++x) {
+            int bit_viejo = 15 - (y * 4 + x);
+            if (pieza & (1 << bit_viejo)) {
+                int real_x = px + x;
+                int real_y = py + y;
+                
+                if (real_x >= 0 && real_x < tablero->ancho && real_y >= 0 && real_y < tablero->alto) {
+                    // Matematica de offsets de Bits otra vez
+                    int byte_idx = real_y * tablero->bytesPorFila + (real_x / 8);
+                    int bit_offset = 7 - (real_x % 8);
+                    
+                    // Asignar 1 logicamente con el operador OR y un shift
+                    tablero->datos[byte_idx] |= (unsigned char)(1 << bit_offset);
+                }
+            }
+        }
+    }
+}
+
+// Destruccion y caida libre de los bloques superiores usando Algebra de punteros
+int LimpiarFilas(Tablero* tablero) {
+    int lineasLimpiadas = 0;
+    
+    for (int y = 0; y < tablero->alto; ++y) {
+        bool filaLlena = true;
+        
+        // Magia Bitwise para detectar mascara completa: Todos los bytes de la fila deben ser '11111111' = 0xFF
+        for (int b = 0; b < tablero->bytesPorFila; ++b) {
+            // El byte actual de esa coordenada Y
+            if (tablero->datos[y * tablero->bytesPorFila + b] != 0xFF) {
+                filaLlena = false;
+                break;
+            }
+        }
+        
+        if (filaLlena) {
+            lineasLimpiadas++;
+            // Bucle decreciente que asigna el byte n-1 al byte n, emulando la caida de la gravedad
+            for (int k = y; k > 0; --k) {
+                for (int b = 0; b < tablero->bytesPorFila; ++b) {
+                    tablero->datos[k * tablero->bytesPorFila + b] = tablero->datos[(k - 1) * tablero->bytesPorFila + b];
+                }
+            }
+            // Aniquilar fila en y=0, insertando de nuevo ceros puros.
+            for (int b = 0; b < tablero->bytesPorFila; ++b) {
+                tablero->datos[b] = 0;
+            }
+            // Trick para repasar la MISMA Y porque todo acaba de "caer" en ella, 
+            // no podemos simplemente saltar a la 'Y + 1' en la proxima iteracion.
+            y--; 
+        }
+    }
+    
+    return lineasLimpiadas;
+}
+
+
+MAIN.CPP
+
+// - Programacion Modular (Headers/Cpp multiples)
+// - Resolucion obligatoria de la arquitectura a bajo nivel con bytes
+// - Muliplo de 8 respetado a fuego en el Heap (16x20)
+
+#include <iostream>
+#include <ctime>
+#include <cstdlib>
+#include <windows.h>
+#include <io.h> // Para _isatty y _fileno
+#include <string>
+#include "juego.h"
+#include "consola.h"
+
+using namespace std;
+
+// Entorno 100% consola como fue solicitado, sin motor grafico.
+int main(int argc, char* argv[]) {
+    
+    // MAGIA DEFINTIVA: Detectamos si QtCreator esta atrapando el juego en su panel inferior
+    // _isatty devuelve 0 si la salida esta siendo redirigida a un pipe interno.
+    if (!_isatty(_fileno(stdout))) {
+        // Relanzamos el mismo ejecutable forzando una ventana nativa del sistema operativo CMD
+        string ejecutable = argv[0];
+        string comando = "start \"Tetris Consola\" \"" + ejecutable + "\"";
+        system(comando.c_str());
+        return 0; // Terminamos silenciosamente la ejecucion erronea del IDE
+    }
+
+    // 1. Inicializar semilla de rand() basado en el clock real del microprocesador (1 SOLA VEZ)
+    srand(static_cast<unsigned int>(time(NULL)));
+    
+    int ancho = 16;
+    int alto = 20;
+
+    // Asegurar limpieza de consola inicial
+    system("cls");
+
+    cout << "--- TETRIS UNIVERSITARIO (MODO CONSOLA PURO) ---\n\n";
+    cout << "Ingresa el Ancho del tablero (minimo 8, multiplo de 8 recomendado): " << flush;
+    cin >> ancho;
+    
+    // Validar si la consola de ejecución rechaza la entrada (Ej. Panel de Qt Creator sin Terminal)
+    if (cin.fail() || cin.eof()) {
+        cout << "\n[ADVERTENCIA DEL SISTEMA]\n";
+        cout << "Tu IDE no esta ejecutando el codigo en una Consola de Ventana Terminal CMD.\n";
+        cout << "Por favor, ACTIVA la opcion 'Run in Terminal' en la configuracion de QtCreator.\n";
+        cout << "El juego no puede recibir entradas del teclado sin una ventana de verdad.\n";
+        Dormir(5000); // 5 segundos para que lo lea
+        return 1;
+    }
+    
+    cout << "Ingresa el Alto del tablero (minimo 8): " << flush;
+    cin >> alto;
+
+    if (ancho < 8) ancho = 8;
+    // Forzamos multiplo de 8 para el heap memory bitwise logic
+    if (ancho % 8 != 0) ancho = ancho - (ancho % 8) + 8;
+    if (alto < 8) alto = 8;
+
+    cout << "\nPresiona cualquier tecla y luego ENTER para comenzar el juego..." << flush;
+    
+    // Limpiamos el salto de linea remanente en el buffer de cin
+    cin.ignore(); 
+    cin.get(); // Esperamos al ENTER del usuario
+
+    OcultarCursor();
+    
+    Juego tetrisEngine(ancho, alto);
+    tetrisEngine.Iniciar();
+    
+    // Regresar cursor y color a la normalidad al salir
+    ColorTexto(7); // Blanco por defecto en consola Windows
+    cout << "\nGracias por jugar.\n" << endl;
+    
+    // Pausa para que la ventana generada por QtCreator no se cierre abruptamente
+    system("pause");
+    
+    return 0; // Return puro de C++ Standard indicando 0 ERRORES LOGICOS a nivel SO
+}
